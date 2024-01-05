@@ -32,9 +32,16 @@ def parse_mnist(image_filesname, label_filename):
                 labels of the examples.  Values should be of type np.int8 and
                 for MNIST will contain the values 0-9.
     """
-    ### BEGIN YOUR SOLUTION
-    raise NotImplementedError()
-    ### END YOUR SOLUTION
+    with gzip.open(image_filesname, 'rb') as f:
+        magic, num, rows, cols = struct.unpack(">IIII", f.read(16))
+        X = np.frombuffer(f.read(), dtype=np.uint8).reshape(num, rows*cols)
+        X = X.astype(np.float32) / 255.0
+
+    with gzip.open(label_filename, 'rb') as f:
+        magic, num = struct.unpack(">II", f.read(8))
+        y = np.frombuffer(f.read(), dtype=np.uint8)
+
+    return X, y
 
 
 def softmax_loss(Z, y_one_hot):
@@ -53,9 +60,11 @@ def softmax_loss(Z, y_one_hot):
     Returns:
         Average softmax loss over the sample. (ndl.Tensor[np.float32])
     """
-    ### BEGIN YOUR SOLUTION
-    raise NotImplementedError()
-    ### END YOUR SOLUTION
+    batch_size = Z.shape[0]
+    lhs = ndl.log(ndl.exp(Z).sum(axes=(1,)))
+    rhs = (Z * y_one_hot).sum(axes=(1,))
+    loss = (lhs - rhs).sum()
+    return loss / batch_size
 
 
 def nn_epoch(X, y, W1, W2, lr=0.1, batch=100):
@@ -82,9 +91,25 @@ def nn_epoch(X, y, W1, W2, lr=0.1, batch=100):
             W2: ndl.Tensor[np.float32]
     """
 
-    ### BEGIN YOUR SOLUTION
-    raise NotImplementedError()
-    ### END YOUR SOLUTION
+    idx = 0
+    num_classes = W2.shape[1]
+    while idx < X.shape[0]:
+        X_batch = ndl.Tensor(X[idx:idx+batch])
+        Z1 = X_batch.matmul(W1)
+        network_output = ndl.relu(Z1).matmul(W2)
+
+        y_batch = y[idx:idx+batch]
+        y_one_hot = np.zeros((batch, num_classes))
+        y_one_hot[np.arange(batch), y_batch] = 1
+        y_one_hot = ndl.Tensor(y_one_hot)
+
+        loss = softmax_loss(network_output, y_one_hot)
+        loss.backward()
+
+        W1 = ndl.Tensor(W1.numpy() - lr * W1.grad.numpy())
+        W2 = ndl.Tensor(W2.numpy() - lr * W2.grad.numpy())
+        idx += batch
+    return W1, W2
 
 
 ### CODE BELOW IS FOR ILLUSTRATION, YOU DO NOT NEED TO EDIT
