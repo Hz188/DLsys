@@ -406,6 +406,7 @@ def find_topo_sort(node_list: List[Value]) -> List[Value]:
     for node in node_list:
         if node not in visted:
             topo_sort_dfs(node, visted, topo_order)
+    print('\n', topo_order)
     return topo_order
 
 

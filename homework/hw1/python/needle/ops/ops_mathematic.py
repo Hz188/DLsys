@@ -180,16 +180,24 @@ class BroadcastTo(TensorOp):
     def gradient(self, out_grad, node):
         input_shape = node.inputs[0].shape
         output_shape = out_grad.shape
+        print(f'\ninput shape: {input_shape}')
+        print(f'output shape: {output_shape}')
 
         # 先生成一个和output_shape长度一样的zero list，然后把input shape放在最后
         input_shape_adjusted = [0] * len(output_shape)
         if len(input_shape) > 0:
             input_shape_adjusted[-len(input_shape):] = input_shape[:]
-
+        print(f'adjusted input shape: {input_shape_adjusted}')
         # 找到 input_shape_adjusted 和 output_shape不同的位置，这些位置就是需要reduce的维度
-        axes_to_reduce = [axis for axis, (in_dim, out_dim) in enumerate(zip(input_shape_adjusted, output_shape)) if in_dim != out_dim]
+        axes_to_reduce = [
+                            axis for axis, (in_dim, out_dim) 
+                            in enumerate(zip(input_shape_adjusted, output_shape)) 
+                            if in_dim != out_dim
+                        ]
+        print(f'axes to reduce: {axes_to_reduce}')
         grad = summation(out_grad, tuple(axes_to_reduce))
-        if len(input_shape) > 0:
+        print(f'grad shape: {grad.shape}')
+        if len(input_shape) > 0:  # 这里是可能存在shape不对应的情况(5,4) -> (5,4,1)
             grad = reshape(grad, input_shape)
         return grad
 
@@ -208,12 +216,16 @@ class Summation(TensorOp):
 
     def gradient(self, out_grad, node):
         reduce_shape = list(node.inputs[0].shape)
+        # print(f'\nreduce_shape 1: {reduce_shape}')
         if self.axes is not None:
             if not isinstance(self.axes, tuple):
                 self.axes = tuple(self.axes)
             for axis in self.axes:
                 reduce_shape[axis] = 1
+            # print(f'reduce_shape 2: {reduce_shape}')
+            # print(f'out_grad shape:{out_grad.shape}')
             grad = reshape(out_grad, reduce_shape)
+            # print(f'out_grad reshape:{out_grad.shape}')
         else:
             grad = out_grad
         return broadcast_to(grad, node.inputs[0].shape)
@@ -228,9 +240,9 @@ class MatMul(TensorOp):
         return a @ b
 
     def gradient(self, out_grad, node):
-        a, b = node.inputs
-        grad_a = matmul(out_grad, transpose(b))
-        grad_b = matmul(transpose(a), out_grad) 
+        a, b = node.inputs # a (B, m, k) b (k, n) -> output (B, m, n)
+        grad_a = matmul(out_grad, transpose(b)) # grad_a: (B,m,n)@(n,k) -> (B,m,k)
+        grad_b = matmul(transpose(a), out_grad) # grad_b: (B,k,m)@(B,m,n) ->(B,k,n)
 
         # 如果需要的话 调整shape（如果是BMM形式）
         if grad_a.shape != a.shape:
