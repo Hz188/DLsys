@@ -39,7 +39,6 @@ class Op:
 
         """
         raise NotImplementedError()
-
     def gradient(
         self, out_grad: "Value", node: "Value"
     ) -> Union["Value", Tuple["Value"]]:
@@ -88,13 +87,16 @@ class TensorTupleOp(Op):
 
 class Value:
     """A value in the computational graph."""
-
+    # 这里是类变量，在_init方法中中每个实例都进而转换为了成员变量,被Tensor继承
     # trace of computational graph
-    op: Optional[Op]
-    inputs: List["Value"]
+    op: Optional[Op]       # op保存了计算出这个值进行了什么运算
+    inputs: List["Value"]  # inputs保存了feed into op 的Value List
+                           # 这个变量对应于我们计算图中运算符的输入
+                           # 也就是我们不仅cache了data，我们还保存了这个data是如何计算出来的
+                           # 通过Op和inputs，我们可以知道我们的data是如何被计算出来的
     # The following fields are cached fields for
     # dynamic computation
-    cached_data: NDArray
+    cached_data: NDArray  # 这个变量cache了我们张量实际的数据
     requires_grad: bool
 
     def realize_cached_data(self):
@@ -127,7 +129,7 @@ class Value:
         global TENSOR_COUNTER
         TENSOR_COUNTER += 1
         if requires_grad is None:
-            requires_grad = any(x.requires_grad for x in inputs)
+            requires_grad = any(x.requires_grad for x in inputs) # 有一个True则为True
         self.op = op
         self.inputs = inputs
         self.num_outputs = num_outputs
@@ -196,7 +198,12 @@ class Tensor(Value):
     def __init__(
         self,
         array,
-        *,
+        *,  
+        # * 表示可变长度参数，*前面参数是固定的，*后面参数是可变的
+        # 在这个构造函数中，*后面device,dtype,requires_grad指定的都是关键字参数，
+        # 调用函数时候必须以关键字参数形式提供
+        # 不能通过位置参数给定，也就是说，只有array可以通过位置参数给，其余的都要用关键字参数
+        # x = ndl.Tensor([1,2,3], dtype="float32")  array是位置参数，其余是关键字参数
         device: Optional[Device] = None,
         dtype=None,
         requires_grad=True,
@@ -372,7 +379,7 @@ def compute_gradient_of_variables(output_tensor, out_grad):
     # a map from node to a list of gradient contributions from each output node
     node_to_output_grads_list: Dict[Tensor, List[Tensor]] = {}
     # Special note on initializing gradient of
-    # We are really taking a derivative of the scalar reduce_sum(output_node)
+# We are really taking a derivative of the scalar reduce_sum(output_node)
     # instead of the vector output_node. But this is the common case for loss function.
     node_to_output_grads_list[output_tensor] = [out_grad]
 

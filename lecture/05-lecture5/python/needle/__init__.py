@@ -6,3 +6,4 @@ from .init import ones, zeros, zeros_like, ones_like
 
 from . import init
 
+print(111)
