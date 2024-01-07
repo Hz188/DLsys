@@ -273,8 +273,7 @@ class Exp(TensorOp):
         return array_api.exp(a)
 
     def gradient(self, out_grad, node):
-        a = node.inputs[0]
-        return out_grad * exp(a)
+        return out_grad * node
 
 
 def exp(a):
