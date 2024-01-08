@@ -1,5 +1,5 @@
 from ..autograd import Op, Tensor, TensorTuple, Value, TensorOp, TensorTupleOp
-
+from .. import init
 
 class MakeTensorTuple(TensorTupleOp):
     def compute(self, *args) -> tuple:
@@ -36,6 +36,7 @@ class TupleGetItem(TensorOp):
                 in_grad.append(init.zeros_like(value))
             else:
                 in_grad.append(out_grad)
+        # print(in_grad)
         return MakeTensorTuple()(*in_grad)
 
 
@@ -52,6 +53,7 @@ class FusedAddScalars(TensorTupleOp):
         return a + self.c0, a + self.c1
 
     def gradient(self, out_grad, node):
+        # print(out_grad.op, out_grad.inputs)
         return out_grad[0] + out_grad[1]
 
 
