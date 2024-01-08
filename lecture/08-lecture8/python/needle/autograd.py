@@ -390,15 +390,14 @@ def compute_gradient_of_variables(output_tensor, out_grad):
         input_grads = node.op.gradient(node.grad, node)
         if isinstance(input_grads, Tensor):
             input_grads = [input_grads]
-        # if isinstance(input_grads, TensorTuple):
-        #     print(f"tensortuple {input_grads}")
+        if isinstance(input_grads, TensorTuple):
+            # 解释：如果返回的梯度是TensorTuple类型，那么其实和Tensor类型是一样的
+            #       是一个完整的单独个体，所以封装成一个List
+            input_grads = [input_grads]
         for i, input_node in enumerate(node.inputs):
             if input_node not in node_to_output_grads_list:
                 node_to_output_grads_list[input_node] = []
-            if isinstance(input_grads, TensorTuple):
-                node_to_output_grads_list[input_node].append(input_grads)
-            else:
-                node_to_output_grads_list[input_node].append(input_grads[i])
+            node_to_output_grads_list[input_node].append(input_grads[i])
 
 
 def find_topo_sort(node_list: List[Value]) -> List[Value]:
