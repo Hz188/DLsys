@@ -380,9 +380,23 @@ def compute_gradient_of_variables(output_tensor, out_grad):
     # Traverse graph in reverse topological order given the output_node that we are taking gradient wrt.
     reverse_topo_order = list(reversed(find_topo_sort([output_tensor])))
 
-    ### BEGIN YOUR SOLUTION
-    raise NotImplementedError()
-    ### END YOUR SOLUTION
+    for node in reverse_topo_order:
+        # print(node_to_output_grads_list)
+        node.grad = sum_node_list(node_to_output_grads_list[node])
+        if node.op is None:
+            continue
+        # print(node.grad)
+        input_grads = node.op.gradient(node.grad, node)
+        if isinstance(input_grads, Tensor):
+            input_grads = [input_grads]
+        if isinstance(input_grads, TensorTuple):
+            # 解释：如果返回的梯度是TensorTuple类型，那么其实和Tensor类型是一样的
+            #       是一个完整的单独个体，所以封装成一个List
+            input_grads = [input_grads]
+        for i, input_node in enumerate(node.inputs):
+            if input_node not in node_to_output_grads_list:
+                node_to_output_grads_list[input_node] = []
+            node_to_output_grads_list[input_node].append(input_grads[i])
 
 
 def find_topo_sort(node_list: List[Value]) -> List[Value]:
@@ -393,16 +407,26 @@ def find_topo_sort(node_list: List[Value]) -> List[Value]:
     after all its predecessors are traversed due to post-order DFS, we get a topological
     sort.
     """
-    ### BEGIN YOUR SOLUTION
-    raise NotImplementedError()
+    result = []
+    visited = []
+    for node in node_list:
+        topo_sort_dfs(node, visited, result)
+    return result
     ### END YOUR SOLUTION
 
 
 def topo_sort_dfs(node, visited, topo_order):
     """Post-order DFS"""
     ### BEGIN YOUR SOLUTION
-    raise NotImplementedError()
+    if node in visited:
+        return
+    else:
+        for subnode in node.inputs:
+            topo_sort_dfs(subnode, visited, topo_order)
+        visited.append(node)
+        topo_order.append(node)
     ### END YOUR SOLUTION
+
 
 
 ##############################
