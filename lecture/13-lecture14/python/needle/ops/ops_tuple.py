@@ -1,5 +1,5 @@
 from ..autograd import Op, Tensor, TensorTuple, Value, TensorOp, TensorTupleOp
-
+from .. import init
 
 class MakeTensorTuple(TensorTupleOp):
     def compute(self, *args) -> tuple:

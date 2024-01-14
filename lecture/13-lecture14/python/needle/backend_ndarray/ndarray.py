@@ -4,7 +4,7 @@ from functools import reduce
 import numpy as np
 from . import ndarray_backend_numpy
 from . import ndarray_backend_cpu
-
+from . import ndarray_backend_cuda
 
 # math.prod not in Python 3.7
 def prod(x):
@@ -16,7 +16,7 @@ class BackendDevice:
 
     def __init__(self, name, mod):
         self.name = name
-        self.mod = mod
+        self.mod = mod # 这就是对应于我们真正实现的模块，np,cpu,cuda
 
     def __eq__(self, other):
         return self.name == other.name
@@ -24,7 +24,11 @@ class BackendDevice:
     def __repr__(self):
         return self.name + "()"
 
-    def __getattr__(self, name):
+    def __getattr__(self, name): 
+        # 当访问一个对象的属性时，如果该属性不存在，Python 会调用__getattr__ 方法，可以在这个方法中定义我们自己的处理逻辑。
+        # 这里于是 device.from_numpy
+        # 没from_numpy这个成员，进入__getattr__
+        # getattr对这个模块使用，得到from_numpy这个函数
         return getattr(self.mod, name)
 
     def enabled(self):
@@ -96,31 +100,36 @@ class NDArray:
     For now, for simplicity the class only supports float32 types, though
     this can be extended if desired.
     """
-
+    # NDArray的一个关键能力就是：将我们多维的python用的NDArray转为后端np\cpu\cuda中的一维Array
     def __init__(self, other, device=None):
         """Create by copying another NDArray, or from numpy"""
         if isinstance(other, NDArray):
             # create a copy of existing NDArray
+            print("if branch 1")
             if device is None:
                 device = other.device
             self._init(other.to(device) + 0.0)  # this creates a copy
         elif isinstance(other, np.ndarray):
             # create copy from numpy array
+            print("if branch 2")
             device = device if device is not None else default_device()
             array = self.make(other.shape, device=device)
-            array.device.from_numpy(np.ascontiguousarray(other), array._handle)
+            array.device.from_numpy(np.ascontiguousarray(other), array._handle) # 这里是转向C++调用了
             self._init(array)
         else:
             # see if we can create a numpy array from input
+            print("if branch 3")
             array = NDArray(np.array(other), device=device)
             self._init(array)
 
+    #   有很多key field：_init()中：shape，strides，offset，device，handle
     def _init(self, other):
         self._shape = other._shape
         self._strides = other._strides
         self._offset = other._offset
         self._device = other._device
-        self._handle = other._handle
+        self._handle = other._handle # 唯一的可能会依赖cpp文件的属性: array._handle = array.device.Array(prod(shape))
+        # _handle通过trace y = x + 1的过程来学习了，看ipynb：trace GPU execution
 
     @staticmethod
     def compact_strides(shape):
@@ -143,6 +152,11 @@ class NDArray:
         array._offset = offset
         array._device = device if device is not None else default_device()
         if handle is None:
+            # 这行代码就是：根据不同的device，找到不同的后端 
+            # ndarray_backend_numpy.py 有一个Array类
+            # ndarray_backend_cpu.cc 有一个Array类
+            # ndarray_backend_cuda.cu 有一个Array类
+            # prod(shape) 目的就是多维底层是一维存储的
             array._handle = array.device.Array(prod(shape))
         else:
             array._handle = handle
@@ -202,6 +216,8 @@ class NDArray:
     def is_compact(self):
         """Return true if array is compact in memory and internal size equals product
         of the shape dimensions"""
+        print(self._strides)
+        print(self.compact_strides(self._shape))
         return (
             self._strides == self.compact_strides(self._shape)
             and prod(self.shape) == self._handle.size
@@ -209,6 +225,18 @@ class NDArray:
 
     def compact(self):
         """Convert a matrix to be compact"""
+        # 比如：z = y + 1， y的shape是(2,2)
+        # compact函数的作用就是：如果我们当前数组y是紧凑的，那么可以直接self返回给__add__拿去运算了
+        # 如果不是紧凑的，就说明，我们的y其实有一个x._handle，y是对x做了一些stride、shape上的转换之后的视图
+        #       比如y是x shape(3,3)的一个slice
+        # 这个时候如果对y进行操作，相当于对x中不连续的一个slice的内存进行操作
+        # y不是紧凑的，所以要对其进行紧凑操作，用紧凑操作后的数组out
+        #       进行运算，这样得到的结果z是紧凑的
+        
+        # 从字面意思理解就是：无论我们对数组做了任何的transpose，broadcast
+        # 这个函数都可以让我们得到一个compact后的数组
+        # 因为我们背后的各种底层计算operations，都是在一维数组上进行计算的
+        # TQ也说了：大家也可以进行实现operations针对non-compact的情况
         if self.is_compact():
             return self
         else:
@@ -398,6 +426,7 @@ class NDArray:
         out = NDArray.make(self.shape, device=self.device)
         if isinstance(other, NDArray):
             assert self.shape == other.shape, "operation needs two equal-sized arrays"
+            # compact的目的是：底层存储是一维，避免没转一维，转为一维去运算
             ewise_func(self.compact()._handle, other.compact()._handle, out._handle)
         else:
             scalar_func(self.compact()._handle, other, out._handle)

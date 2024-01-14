@@ -6,6 +6,7 @@ _datatype = np.float32
 _datetype_size = np.dtype(_datatype).itemsize
 
 
+# np 后端的承载Array
 class Array:
     def __init__(self, size):
         self.array = np.empty(size, dtype=np.float32)

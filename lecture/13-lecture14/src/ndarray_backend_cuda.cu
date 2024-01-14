@@ -237,6 +237,32 @@ void ScalarMul(const CudaArray& a, scalar_t val, CudaArray* out) {
   ScalarMulKernel<<<dim.grid, dim.block>>>(a.ptr, val, out->ptr, out->size);
 }
 
+__global__ void EwiseDivKernel(const scalar_t* a, const scalar_t* b, scalar_t* out, size_t size) {
+  size_t gid = blockIdx.x * blockDim.x + threadIdx.x;
+  if (gid < size) out[gid] = a[gid] / b[gid];
+}
+
+void EwiseDiv(const CudaArray& a, const CudaArray& b, CudaArray* out) {
+  /**
+   * Add together two CUDA array
+   */
+  CudaDims dim = CudaOneDim(out->size);
+  EwiseDivKernel<<<dim.grid, dim.block>>>(a.ptr, b.ptr, out->ptr, out->size);
+}
+
+__global__ void ScalarDivKernel(const scalar_t* a, scalar_t val, scalar_t* out, size_t size) {
+  size_t gid = blockIdx.x * blockDim.x + threadIdx.x;
+  if (gid < size) out[gid] = a[gid] / val;
+}
+
+void ScalarDiv(const CudaArray& a, scalar_t val, CudaArray* out) {
+  /**
+   * Add together a CUDA array and a scalar value.
+   */
+  CudaDims dim = CudaOneDim(out->size);
+  ScalarDivKernel<<<dim.grid, dim.block>>>(a.ptr, val, out->ptr, out->size);
+}
+
 /// END SOLUTION
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -354,9 +380,11 @@ PYBIND11_MODULE(ndarray_backend_cuda, m) {
 
   m.def("ewise_mul", EwiseMul);
   m.def("scalar_mul", ScalarMul);
-  /*
+
   m.def("ewise_div", EwiseDiv);
   m.def("scalar_div", ScalarDiv);
+  /*
+
   m.def("scalar_power", ScalarPower);
 
   m.def("ewise_maximum", EwiseMaximum);
