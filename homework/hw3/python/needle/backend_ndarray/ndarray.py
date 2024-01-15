@@ -247,7 +247,11 @@ class NDArray:
         """
 
         ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
+        return NDArray.make(shape=new_shape,
+                    strides=NDArray.compact_strides(new_shape),
+                    device=self._device,
+                    handle=self._handle,
+                    offset=0)
         ### END YOUR SOLUTION
 
     def permute(self, new_axes):
@@ -272,7 +276,11 @@ class NDArray:
         """
 
         ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
+        return NDArray.make(shape=new_shape,
+                    strides=NDArray.compact_strides(new_shape),
+                    device=self._device,
+                    handle=self._handle,
+                    offset=0)
         ### END YOUR SOLUTION
 
     def broadcast_to(self, new_shape):
