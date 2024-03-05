@@ -243,15 +243,13 @@ class NDArray:
             new_shape (tuple): new shape of the array
 
         Returns:
-            NDArray : reshaped array; this will point to thep
+            NDArray : reshaped array; this will point to the same memory as the original NDArray.
         """
 
         ### BEGIN YOUR SOLUTION
-        return NDArray.make(shape=new_shape,
-                    strides=NDArray.compact_strides(new_shape),
-                    device=self._device,
-                    handle=self._handle,
-                    offset=0)
+        if prod(self._shape) != prod(new_shape) or not self.is_compact():
+            raise ValueError()
+        return self.as_strided(new_shape,strides=NDArray.compact_strides(new_shape))
         ### END YOUR SOLUTION
 
     def permute(self, new_axes):
@@ -276,11 +274,9 @@ class NDArray:
         """
 
         ### BEGIN YOUR SOLUTION
-        return NDArray.make(shape=new_shape,
-                    strides=NDArray.compact_strides(new_shape),
-                    device=self._device,
-                    handle=self._handle,
-                    offset=0)
+        new_shape = tuple(self._shape[i] for i in new_axes)
+        new_strides  = tuple(self._strides[i] for i in new_axes)
+        return self.as_strided(new_shape, new_strides)
         ### END YOUR SOLUTION
 
     def broadcast_to(self, new_shape):
@@ -304,7 +300,22 @@ class NDArray:
         """
 
         ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
+        old_shape = self._shape
+        old_strides = self._strides
+        assert len(old_shape) == len(new_shape)
+        new_strides = []
+        for axis_no, (old_axis_size, new_axis_size) in enumerate(zip(old_shape, new_shape)):
+            # print(f"{axis_no=}, {old_axis_size=}, {new_axis_size=}")
+            if old_axis_size == new_axis_size:
+                new_strides.append(old_strides[axis_no])
+            else:
+                assert old_axis_size == 1
+                new_strides.append(0)
+        new_strides = tuple(new_strides)
+        # print(f"{old_shape=}, {old_strides=}")
+        # print(f"{new_shape=}, {new_strides=}")
+
+        return self.as_strided(new_shape, new_strides)
         ### END YOUR SOLUTION
 
     ### Get and set elements
@@ -371,7 +382,28 @@ class NDArray:
         assert len(idxs) == self.ndim, "Need indexes equal to number of dimensions"
 
         ### BEGIN YOUR SOLUTION
-        raise NotImplementedError()
+        old_shape = self._shape
+        old_strides = self._strides
+        # print(f"{old_shape=}, {old_strides=}")
+
+        new_shape = []
+        new_strides = []
+        new_offset = 0
+        for axis_no, (old_axis_size, old_axis_stride, axis_index) in enumerate(zip(old_shape, old_strides, idxs)):
+            # print(f"{axis_no=}, {old_axis_stride=}, {old_axis_stride=}, {axis_index=}")
+            (start, stop, step) = (axis_index.start, axis_index.stop, axis_index.step)
+            new_offset += start * old_axis_stride
+            new_axis_size = ((stop - start - 1) // step) + 1
+            new_axis_stride = old_axis_stride * step
+            new_shape.append(new_axis_size)
+            new_strides.append(new_axis_stride)
+        
+        new_shape = tuple(new_shape)
+        new_strides = tuple(new_strides)
+
+        # print(f"{new_offset=}, {new_shape=}, {new_strides=}")
+
+        return NDArray.make(new_shape, strides=new_strides, device=self.device, handle=self._handle, offset=new_offset)
         ### END YOUR SOLUTION
 
     def __setitem__(self, idxs, other):

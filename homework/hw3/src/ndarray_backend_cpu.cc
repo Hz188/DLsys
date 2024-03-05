@@ -43,7 +43,18 @@ void Fill(AlignedArray* out, scalar_t val) {
   }
 }
 
-
+void UpdateIdxInEachDim(std::vector<int32_t>* idx_in_each_dim_ptr, const std::vector<int32_t>& shape) {
+  auto& idx_in_each_dim = *idx_in_each_dim_ptr;
+  for (int i = shape.size() - 1; i >= 0; i--) {
+    auto idx_in_dim = idx_in_each_dim[i];
+    if (++idx_in_dim < shape[i]) {  //从最内层维度开始走一步，如果不能走，则相当于换行了，进入else
+      idx_in_each_dim[i] = idx_in_dim;
+      break;
+    } else {
+      idx_in_each_dim[i] = 0;  //置0，然后回到for循环，去更新次内层的维度
+    }
+  }
+}
 
 void Compact(const AlignedArray& a, AlignedArray* out, std::vector<int32_t> shape,
              std::vector<int32_t> strides, size_t offset) {
@@ -62,7 +73,22 @@ void Compact(const AlignedArray& a, AlignedArray* out, std::vector<int32_t> shap
    *  function will implement here, so we won't repeat this note.)
    */
   /// BEGIN SOLUTION
-  assert(false && "Not Implemented");
+  auto total_size = std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<int32_t>());
+  // *out = AlignedArray(total_size);
+
+  size_t idx_out = 0;
+  size_t idx_in = 0;
+  std::vector<int32_t> idx_in_each_dim(shape.size(), 0);  // 这个数组是：每个shape上当前的索引，比如shape(3,3) 则(0,0)
+  while (idx_out < total_size) {
+    idx_in = offset;
+    for (int i = 0; i < shape.size(); i++) {
+      idx_in += idx_in_each_dim[i] * strides[i];  // 0 * stride[0] + 0 * stride[1] 得到索引
+    }
+    out->ptr[idx_out++] = a.ptr[idx_in];  // 有索引了，放data
+
+    // increment indices
+    UpdateIdxInEachDim(&idx_in_each_dim, shape);  //(0,0) 更新为(0,1)
+  }
   /// END SOLUTION
 }
 
@@ -79,7 +105,21 @@ void EwiseSetitem(const AlignedArray& a, AlignedArray* out, std::vector<int32_t>
    *   offset: offset of the *out* array (not a, which has zero offset, being compact)
    */
   /// BEGIN SOLUTION
-  assert(false && "Not Implemented");
+  auto total_size = std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<int32_t>());
+
+  size_t idx_out = 0;
+  size_t idx_in = 0;
+  std::vector<int32_t> idx_in_each_dim(shape.size(), 0);
+  while (idx_in < total_size) {
+    idx_out = offset;
+    for (int i = 0; i < shape.size(); i++) {
+      idx_out += idx_in_each_dim[i] * strides[i];
+    }
+    out->ptr[idx_out] = a.ptr[idx_in++];
+
+    // increment indices
+    UpdateIdxInEachDim(&idx_in_each_dim, shape);
+  }
   /// END SOLUTION
 }
 
@@ -100,7 +140,22 @@ void ScalarSetitem(const size_t size, scalar_t val, AlignedArray* out, std::vect
    */
 
   /// BEGIN SOLUTION
-  assert(false && "Not Implemented");
+  auto total_size = std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<int32_t>());
+
+  size_t idx_out = 0;
+  size_t cnt = 0;
+  std::vector<int32_t> idx_in_each_dim(shape.size(), 0);
+  while (cnt < size) {
+    idx_out = offset;
+    for (int i = 0; i < shape.size(); i++) {
+      idx_out += idx_in_each_dim[i] * strides[i];
+    }
+    out->ptr[idx_out] = val;
+    cnt++;
+
+    // increment indices
+    UpdateIdxInEachDim(&idx_in_each_dim, shape);
+  }
   /// END SOLUTION
 }
 
@@ -143,6 +198,41 @@ void ScalarAdd(const AlignedArray& a, scalar_t val, AlignedArray* out) {
  * signatures above.
  */
 
+#define EWISE_PAIR_OP(FUN_NAME, OP) \
+void FUN_NAME(const AlignedArray& a, const AlignedArray& b, AlignedArray* out) { \
+  for (size_t i = 0; i < a.size; i++) { \
+    out->ptr[i] = OP(a.ptr[i], b.ptr[i]); \
+  } \
+}
+
+#define EWISE_UNARY_OP(FUN_NAME, OP) \
+void FUN_NAME(const AlignedArray& a, AlignedArray* out) { \
+  for (size_t i = 0; i < a.size; i++) { \
+    out->ptr[i] = OP(a.ptr[i]); \
+  } \
+}
+
+#define SCALAR_OP(FUN_NAME, OP) \
+void FUN_NAME(const AlignedArray& a, scalar_t val, AlignedArray* out) { \
+  for (size_t i = 0; i < a.size; i++) { \
+    out->ptr[i] = OP(a.ptr[i], val); \
+  } \
+}
+
+EWISE_PAIR_OP(EwiseMul, std::multiplies<scalar_t>());
+SCALAR_OP(ScalarMul, std::multiplies<scalar_t>());
+EWISE_PAIR_OP(EwiseDiv, std::divides<scalar_t>());
+SCALAR_OP(ScalarDiv, std::divides<scalar_t>());
+SCALAR_OP(ScalarPower, [](scalar_t a, scalar_t b) { return std::pow(a, b); });
+EWISE_PAIR_OP(EwiseMaximum, [](scalar_t a, scalar_t b) { return std::max(a, b); });
+SCALAR_OP(ScalarMaximum, [](scalar_t a, scalar_t b) { return std::max(a, b); });
+EWISE_PAIR_OP(EwiseEq, [](scalar_t a, scalar_t b) { return (scalar_t)(a == b); });
+SCALAR_OP(ScalarEq, [](scalar_t a, scalar_t b) { return (scalar_t)(a == b); });
+EWISE_PAIR_OP(EwiseGe, [](scalar_t a, scalar_t b) { return (scalar_t)(a >= b); });
+SCALAR_OP(ScalarGe, [](scalar_t a, scalar_t b) { return (scalar_t)(a >= b); });
+EWISE_UNARY_OP(EwiseLog, [](scalar_t a) { return std::log(a); });
+EWISE_UNARY_OP(EwiseExp, [](scalar_t a) { return std::exp(a); });
+EWISE_UNARY_OP(EwiseTanh, [](scalar_t a) { return std::tanh(a); });
 
 void Matmul(const AlignedArray& a, const AlignedArray& b, AlignedArray* out, uint32_t m, uint32_t n,
             uint32_t p) {
@@ -288,22 +378,22 @@ PYBIND11_MODULE(ndarray_backend_cpu, m) {
   m.def("ewise_add", EwiseAdd);
   m.def("scalar_add", ScalarAdd);
 
-  // m.def("ewise_mul", EwiseMul);
-  // m.def("scalar_mul", ScalarMul);
-  // m.def("ewise_div", EwiseDiv);
-  // m.def("scalar_div", ScalarDiv);
-  // m.def("scalar_power", ScalarPower);
+  m.def("ewise_mul", EwiseMul);
+  m.def("scalar_mul", ScalarMul);
+  m.def("ewise_div", EwiseDiv);
+  m.def("scalar_div", ScalarDiv);
+  m.def("scalar_power", ScalarPower);
 
-  // m.def("ewise_maximum", EwiseMaximum);
-  // m.def("scalar_maximum", ScalarMaximum);
-  // m.def("ewise_eq", EwiseEq);
-  // m.def("scalar_eq", ScalarEq);
-  // m.def("ewise_ge", EwiseGe);
-  // m.def("scalar_ge", ScalarGe);
+  m.def("ewise_maximum", EwiseMaximum);
+  m.def("scalar_maximum", ScalarMaximum);
+  m.def("ewise_eq", EwiseEq);
+  m.def("scalar_eq", ScalarEq);
+  m.def("ewise_ge", EwiseGe);
+  m.def("scalar_ge", ScalarGe);
 
-  // m.def("ewise_log", EwiseLog);
-  // m.def("ewise_exp", EwiseExp);
-  // m.def("ewise_tanh", EwiseTanh);
+  m.def("ewise_log", EwiseLog);
+  m.def("ewise_exp", EwiseExp);
+  m.def("ewise_tanh", EwiseTanh);
 
   // m.def("matmul", Matmul);
   // m.def("matmul_tiled", MatmulTiled);
