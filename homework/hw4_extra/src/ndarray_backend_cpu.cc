@@ -43,7 +43,18 @@ void Fill(AlignedArray* out, scalar_t val) {
   }
 }
 
-
+void UpdateIdxInEachDim(std::vector<int32_t>* idx_in_each_dim_ptr, const std::vector<int32_t>& shape) {
+  auto& idx_in_each_dim = *idx_in_each_dim_ptr;
+  for (int i = shape.size() - 1; i >= 0; i--) {
+    auto idx_in_dim = idx_in_each_dim[i];
+    if (++idx_in_dim < shape[i]) {  //从最内层维度开始走一步，如果不能走，则相当于换行了，进入else
+      idx_in_each_dim[i] = idx_in_dim;
+      break;
+    } else {
+      idx_in_each_dim[i] = 0;  //置0，然后回到for循环，去更新次内层的维度
+    }
+  }
+}
 
 void Compact(const AlignedArray& a, AlignedArray* out, std::vector<int32_t> shape,
              std::vector<int32_t> strides, size_t offset) {
@@ -62,7 +73,22 @@ void Compact(const AlignedArray& a, AlignedArray* out, std::vector<int32_t> shap
    *  function will implement here, so we won't repeat this note.)
    */
   /// BEGIN SOLUTION
-  assert(false && "Not Implemented");
+  auto total_size = std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<int32_t>());
+  // *out = AlignedArray(total_size);
+
+  size_t idx_out = 0;
+  size_t idx_in = 0;
+  std::vector<int32_t> idx_in_each_dim(shape.size(), 0);  // 这个数组是：每个shape上当前的索引，比如shape(3,3) 则(0,0)
+  while (idx_out < total_size) {
+    idx_in = offset;
+    for (int i = 0; i < shape.size(); i++) {
+      idx_in += idx_in_each_dim[i] * strides[i];  // 0 * stride[0] + 0 * stride[1] 得到索引
+    }
+    out->ptr[idx_out++] = a.ptr[idx_in];  // 有索引了，放data
+
+    // increment indices
+    UpdateIdxInEachDim(&idx_in_each_dim, shape);  //(0,0) 更新为(0,1)
+  }
   /// END SOLUTION
 }
 
@@ -79,7 +105,21 @@ void EwiseSetitem(const AlignedArray& a, AlignedArray* out, std::vector<int32_t>
    *   offset: offset of the *out* array (not a, which has zero offset, being compact)
    */
   /// BEGIN SOLUTION
-  assert(false && "Not Implemented");
+  auto total_size = std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<int32_t>());
+
+  size_t idx_out = 0;
+  size_t idx_in = 0;
+  std::vector<int32_t> idx_in_each_dim(shape.size(), 0);
+  while (idx_in < total_size) {
+    idx_out = offset;
+    for (int i = 0; i < shape.size(); i++) {
+      idx_out += idx_in_each_dim[i] * strides[i];
+    }
+    out->ptr[idx_out] = a.ptr[idx_in++];
+
+    // increment indices
+    UpdateIdxInEachDim(&idx_in_each_dim, shape);
+  }
   /// END SOLUTION
 }
 
@@ -100,7 +140,22 @@ void ScalarSetitem(const size_t size, scalar_t val, AlignedArray* out, std::vect
    */
 
   /// BEGIN SOLUTION
-  assert(false && "Not Implemented");
+  auto total_size = std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<int32_t>());
+
+  size_t idx_out = 0;
+  size_t cnt = 0;
+  std::vector<int32_t> idx_in_each_dim(shape.size(), 0);
+  while (cnt < size) {
+    idx_out = offset;
+    for (int i = 0; i < shape.size(); i++) {
+      idx_out += idx_in_each_dim[i] * strides[i];
+    }
+    out->ptr[idx_out] = val;
+    cnt++;
+
+    // increment indices
+    UpdateIdxInEachDim(&idx_in_each_dim, shape);
+  }
   /// END SOLUTION
 }
 
@@ -143,6 +198,41 @@ void ScalarAdd(const AlignedArray& a, scalar_t val, AlignedArray* out) {
  * signatures above.
  */
 
+#define EWISE_PAIR_OP(FUN_NAME, OP) \
+void FUN_NAME(const AlignedArray& a, const AlignedArray& b, AlignedArray* out) { \
+  for (size_t i = 0; i < a.size; i++) { \
+    out->ptr[i] = OP(a.ptr[i], b.ptr[i]); \
+  } \
+}
+
+#define EWISE_UNARY_OP(FUN_NAME, OP) \
+void FUN_NAME(const AlignedArray& a, AlignedArray* out) { \
+  for (size_t i = 0; i < a.size; i++) { \
+    out->ptr[i] = OP(a.ptr[i]); \
+  } \
+}
+
+#define SCALAR_OP(FUN_NAME, OP) \
+void FUN_NAME(const AlignedArray& a, scalar_t val, AlignedArray* out) { \
+  for (size_t i = 0; i < a.size; i++) { \
+    out->ptr[i] = OP(a.ptr[i], val); \
+  } \
+}
+
+EWISE_PAIR_OP(EwiseMul, std::multiplies<scalar_t>());
+SCALAR_OP(ScalarMul, std::multiplies<scalar_t>());
+EWISE_PAIR_OP(EwiseDiv, std::divides<scalar_t>());
+SCALAR_OP(ScalarDiv, std::divides<scalar_t>());
+SCALAR_OP(ScalarPower, [](scalar_t a, scalar_t b) { return std::pow(a, b); });
+EWISE_PAIR_OP(EwiseMaximum, [](scalar_t a, scalar_t b) { return std::max(a, b); });
+SCALAR_OP(ScalarMaximum, [](scalar_t a, scalar_t b) { return std::max(a, b); });
+EWISE_PAIR_OP(EwiseEq, [](scalar_t a, scalar_t b) { return (scalar_t)(a == b); });
+SCALAR_OP(ScalarEq, [](scalar_t a, scalar_t b) { return (scalar_t)(a == b); });
+EWISE_PAIR_OP(EwiseGe, [](scalar_t a, scalar_t b) { return (scalar_t)(a >= b); });
+SCALAR_OP(ScalarGe, [](scalar_t a, scalar_t b) { return (scalar_t)(a >= b); });
+EWISE_UNARY_OP(EwiseLog, [](scalar_t a) { return std::log(a); });
+EWISE_UNARY_OP(EwiseExp, [](scalar_t a) { return std::exp(a); });
+EWISE_UNARY_OP(EwiseTanh, [](scalar_t a) { return std::tanh(a); });
 
 void Matmul(const AlignedArray& a, const AlignedArray& b, AlignedArray* out, uint32_t m, uint32_t n,
             uint32_t p) {
@@ -160,7 +250,14 @@ void Matmul(const AlignedArray& a, const AlignedArray& b, AlignedArray* out, uin
    */
 
   /// BEGIN SOLUTION
-  assert(false && "Not Implemented");
+  for (size_t i = 0; i < m; i++) {
+    for (size_t j = 0; j < p; j++) {
+      out->ptr[i * p + j] = 0;
+      for (size_t k = 0; k < n; k++) {
+        out->ptr[i * p + j] += a.ptr[i * n + k] * b.ptr[k * p + j];
+      }
+    }
+  }
   /// END SOLUTION
 }
 
@@ -190,8 +287,13 @@ inline void AlignedDot(const float* __restrict__ a,
   out = (float*)__builtin_assume_aligned(out, TILE * ELEM_SIZE);
 
   /// BEGIN SOLUTION
-  assert(false && "Not Implemented");
-  /// END SOLUTION
+  for (size_t i = 0; i < TILE; i++) {
+    for (size_t j = 0; j < TILE; j++) {
+      for (size_t k = 0; k < TILE; k++) {
+        out[i * TILE + j] += a[i * TILE + k] * b[k * TILE + j];
+      }
+    }
+  }  /// END SOLUTION
 }
 
 void MatmulTiled(const AlignedArray& a, const AlignedArray& b, AlignedArray* out, uint32_t m,
@@ -216,7 +318,22 @@ void MatmulTiled(const AlignedArray& a, const AlignedArray& b, AlignedArray* out
    *
    */
   /// BEGIN SOLUTION
-  assert(false && "Not Implemented");
+  auto m_by_tile = m / TILE;
+  auto n_by_tile = n / TILE;
+  auto p_by_tile = p / TILE;
+  for (size_t i = 0; i < m_by_tile; i++) {
+    for (size_t j = 0; j < p_by_tile; j++) {
+      auto out_tile = out->ptr + (i * p_by_tile + j) * TILE * TILE;
+      // set out_tile to zero
+      std::memset(out_tile, 0, TILE * TILE * ELEM_SIZE);
+
+      for (size_t k = 0; k < n / TILE; k++) {
+        auto a_tile = a.ptr + (i * n_by_tile + k) * TILE * TILE;
+        auto b_tile = b.ptr + (k * p_by_tile + j) * TILE * TILE;
+        AlignedDot(a_tile, b_tile, out_tile);
+      }
+    }
+  }
   /// END SOLUTION
 }
 
@@ -231,7 +348,14 @@ void ReduceMax(const AlignedArray& a, AlignedArray* out, size_t reduce_size) {
    */
 
   /// BEGIN SOLUTION
-  assert(false && "Not Implemented");
+  for (size_t idx_out = 0; idx_out < out->size; idx_out++) {
+    size_t offset = idx_out * reduce_size;
+    scalar_t max_val = a.ptr[offset];
+    for (size_t k = 1; k < reduce_size; k++) {
+      max_val = std::max(max_val, a.ptr[offset + k]);
+    }
+    out->ptr[idx_out] = max_val;
+  }
   /// END SOLUTION
 }
 
@@ -246,7 +370,14 @@ void ReduceSum(const AlignedArray& a, AlignedArray* out, size_t reduce_size) {
    */
 
   /// BEGIN SOLUTION
-  assert(false && "Not Implemented");
+  for (size_t idx_out = 0; idx_out < out->size; idx_out++) {
+    size_t offset = idx_out * reduce_size;
+    scalar_t sum_val = a.ptr[offset];
+    for (size_t k = 1; k < reduce_size; k++) {
+      sum_val += a.ptr[offset + k];
+    }
+    out->ptr[idx_out] = sum_val;
+  }
   /// END SOLUTION
 }
 
